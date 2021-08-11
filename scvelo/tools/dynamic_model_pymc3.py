@@ -65,33 +65,52 @@ class DynamicModel_V1(Pymc3Model):
             
             # Parameter priors:
             self.t_c = pm.Uniform('t_c', lower = 0, upper = 1, shape = (1, self.n_cells))
-            self.k0_g = pm.Bernoulli('k_g', p = 0.5, shape = (self.n_genes, 1)
-            self.t0_g = pm.Uniform('t0_g', lower = 1/self.n_cells, upper = 1, shape = (self.n_genes, 1))
-            self.alpha_kg = pm.Gamma('alpha_g', alpha = 1, beta = 1, shape = (2, self.n_genes))
-            self.beta_g = pm.Gamma('beta_g', alpha = 1, beta = 1, shape = (1, self.n_genes))
-            self.gamma_g = pm.Gamma('gamma_g', alpha = 1, beta = 1, shape = (1, self.n_genes))
+            self.PK_gk = pm.Dirichlet('PK_gk', a = (1,1,1,1), shape = (self.n_genes, 4)
+            self.t0_0g = pm.Uniform('t0_0g', lower = 0, upper = 1, shape = (self.n_genes, 1))
+            self.t0_2g = pm.Uniform('t0_2g', lower = 0, upper = 1, shape = (self.n_genes, 1))
+            self.alpha_g = pm.Gamma('alpha_g', alpha = 1, beta = 1, shape = (self.n_genes, 1))
+            self.beta_g = pm.Gamma('beta_g', alpha = 1, beta = 1, shape = (self.n_genes, 1))
+            self.gamma_g = pm.Gamma('gamma_g', alpha = 1, beta = 1, shape = (self.n_genes, 1))
             
-            # Dynamic model equations (Mean of NB distribution):
-            self.u0_kg = 
-            self.s0_kg =                          
-            self.tau = self.t_c - self.t0_k
-            self.mu.u = self.u0_kg*tt.exp(-self.beta_g*self.tau) + self.alpha_kg/self.beta_g * (1 - tt.exp(-self.beta_g*self_tau))
-            self.mu.s = self.s0_kg*tt.exp(-self.gamma_g*self.tau) + self.alpha_kg/self.gamma_g * (1 - tt.exp(-self.gamma_g*self_tau))
-                        + (self.alpha_kg - self.beta_g*self.u0_kg)/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma*self.tau) - tt.exp(-self.beta*self.tau)
+            # Calculate expected abundance of unspliced and spliced counts in each of the four states:
+                                       
+            # 0: Induction                            
+            self.tau_0 = self.t_c - self.t0_g
+            self.mu.u_0g = self.alpha_g/self.beta_g * (1 - tt.exp(-self.beta_g*self.tau_0))
+            self.mu.s_0g = self.alpha_g/self.gamma_g * (1 - tt.exp(-self.gamma_g*self.tau_0)) + (self.alpha_g -self.beta_g*self.u0_kg)/ (self.gamma_g - self.beta_g) * (tt.exp(-self.gamma*self.tau_0) - tt.exp(-self.beta*self.tau_0)   
+            
+            # 1: Induction steady state
+            self.mu.u_1g = self.alpha_g/self.beta_g
+            self.mu.s_1g = self.alpha_g/self.gamma_g
+            
+            # 2: Repression
+            self.tau_2 = self.t_c - self.t2_g
+            self.mu.u_2g = self.mu.u_1g*tt.exp(-self.beta_g*self.tau_2)
+            self.mu.s_2g = self.mu.s_1g*tt.exp(-self.gamma_g*self.tau_2) - self.beta_g*self.mu.u_1g/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma*self.tau_2) - tt.exp(-self.beta*self.tau_2)   
+                                                                                                  
+            # 3: Repression steady state
+            self.tau = self.t_c - self.t0_k                                                                                      
+            self.mu.u_3g = 0
+            self.mu.s_3g = 0                        
+
+            # And then integrate over outcomes of transcriptional states:                          
+                                       
+            self.mu.u_g = self.PK_gk[:,0] * self.mu.u_0g + self.PK_gk[:,1] * self.mu.u_1g + self.PK_gk[:,2] * self.mu.u_2g + self.PK_gk[:,3] * self.mu.u_3g
+            self.mu.s_g = self.PK_gk[:,0] * self.mu.s_0g + self.PK_gk[:,1] * self.mu.s_1g + self.PK_gk[:,2] * self.mu.s_2g + self.PK_gk[:,3] * self.mu.s_3g
                                                                                                    
             # Alpha for NB distribution:
-            self.phi_hyp_u = pm.Gamma('phi_hyp_u', mu=3,
+            self.phi_hyp_u_g = pm.Gamma('phi_hyp_u_g', mu=3,
                                     sigma=1, shape=(1, 1))
-            self.gene_E_u = pm.Exponential('gene_E_u', self.phi_hyp_u, shape=(self.n_genes, 1))
-            self.alpha_u = 1 / (self.gene_E_u.T * self.gene_E_u.T)                                                                           
-            self.phi_hyp_s = pm.Gamma('phi_hyp_s', mu=3,
+            self.gene_E_u_g = pm.Exponential('gene_E_u_g', self.phi_hyp_u_g, shape=(self.n_genes, 1))
+            self.alpha_u_g = 1 / (self.gene_E_u_g.T * self.gene_E_u_g.T)                                                                           
+            self.phi_hyp_s_g = pm.Gamma('phi_hyp_s_g', mu=3,
                                     sigma=1, shape=(1, 1))
-            self.gene_E_s = pm.Exponential('gene_E_s', self.phi_hyp_s, shape=(self.n_genes, 1))
-            self.alpha_s = 1 / (self.gene_E_s.T * self.gene_E_s.T)                                                                        
+            self.gene_E_s_g = pm.Exponential('gene_E_s_g', self.phi_hyp_s_g, shape=(self.n_genes, 1))
+            self.alpha_s_g = 1 / (self.gene_E_s_g.T * self.gene_E_s_g.T)                                                                        
             
             # Concatenate mean and alpha for Negative Binomial Distribution:
-            self.mu = tt.concatenate([self.mu.u, self.mu.s], axis = 1)
-            self.alpha = tt.concatenate([self.alpha.u, self.alpha.s], axis = 1)
+            self.mu = tt.concatenate([self.mu.u_g, self.mu.s_g], axis = 1)
+            self.alpha = tt.concatenate([self.alpha.u_g, self.alpha.s_g], axis = 1)
             
             # Calculate NB log probability density:
             self.data_target = pm.NegativeBinomial('data_target', mu= self.mu,
