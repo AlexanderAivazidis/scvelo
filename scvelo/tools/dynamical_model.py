@@ -30,6 +30,7 @@ class DynamicsRecovery(BaseDynamics):
     def initialize(self):
         # set weights
         u, s, w, perc = self.u, self.s, self.weights, 98
+        
         u_w = u[w]
         s_w = s[w]
 
