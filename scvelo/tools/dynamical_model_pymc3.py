@@ -37,44 +37,50 @@ class DynamicModel_V1(Pymc3Model):
         
         self.u_counts = u_counts
         self.s_counts = s_counts
-        self.n_genes = np.shape(self.u_counts)[0]
-        self.n_cells = np.shape(self.u_counts)[1]
+        self.n_cells = np.shape(self.u_counts)[0]
+        self.n_genes = np.shape(self.u_counts)[1]
         
         ############# Define the model ################
         self.model = pm.Model()
         with self.model:
             
             # Parameter priors:
-            self.t_c = pm.Uniform('t_c', lower = 0, upper = 1, shape = (self.n_genes, self.n_cells))
-            self.PK_gk = pm.Dirichlet('PK_gk', a = np.array((1,1,1,1)), shape = (self.n_genes, 4))
-            self.t0 = pm.Uniform('t0', lower = 0, upper = 1, shape = (self.n_genes, 1))
-            self.alpha_g = pm.Gamma('alpha_g', alpha = 1, beta = 1, shape = (self.n_genes, 1))
-            self.beta_g = pm.Gamma('beta_g', alpha = 1, beta = 1, shape = (self.n_genes, 1))
-            self.gamma_g = pm.Gamma('gamma_g', alpha = 1, beta = 1, shape = (self.n_genes, 1))
+            t_max = 100
+            self.tau_0 = pm.Exponential('tau_0', lam = 0.02, shape = (self.n_cells, self.n_genes))
+            self.tau_2 = pm.Exponential('tau_2', lam = 0.02, shape = (self.n_cells, self.n_genes))
+            self.PK_cgk = pm.Dirichlet('PK_cgk', a = np.ones((self.n_cells, self.n_genes, 2)), shape = (self.n_cells, self.n_genes, 2))
+            self.alpha_g = pm.Gamma('alpha_g', alpha = 1, beta = 1, shape = (1, self.n_genes))
+            self.beta_g = pm.Gamma('beta_g', alpha = 1, beta = 1, shape = (1, self.n_genes))
+            self.gamma_g = pm.Gamma('gamma_g', alpha = 1, beta = 1, shape = (1, self.n_genes))
             
             # Calculate expected abundance of unspliced and spliced counts in each of the four states:
-                                       
-            # 0: Induction:                            
-            self.tau_0 = pm.Deterministic('tau_0', self.t_c)
-            self.mu_u_0g = self.alpha_g/self.beta_g * (1 - tt.exp(-self.beta_g*self.tau_0))
-            self.mu_s_0g = self.alpha_g/self.gamma_g * (1 - tt.exp(-self.gamma_g*self.tau_0)) + self.alpha_g/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma_g*self.tau_0) - tt.exp(-self.beta_g*self.tau_0))   
+                
+            # 0: Induction:                                   
+            self.mu_u_0cg = self.alpha_g/self.beta_g * (1 - tt.exp(-self.beta_g*self.tau_0))
+            self.mu_s_0cg = self.alpha_g/self.gamma_g * (1 - tt.exp(-self.gamma_g*self.tau_0)) + self.alpha_g/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma_g*self.tau_0) - tt.exp(-self.beta_g*self.tau_0))
             
-            # 1: Induction steady state:
-            self.mu_u_1g = self.alpha_g/self.beta_g
-            self.mu_s_1g = self.alpha_g/self.gamma_g
+            # 1: Induction steady state (needed as initial condition for repression state):
+#             self.mu_u_1cg = self.alpha_g/self.beta_g * (1 - tt.exp(-self.beta_g*t_max))
+#             self.mu_s_1cg = self.alpha_g/self.gamma_g * (1 - tt.exp(-self.gamma_g*t_max)) + self.alpha_g/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma_g*t_max) - tt.exp(-self.beta_g*t_max))
+            
+            self.mu_u_1cg = tt.extra_ops.repeat(self.alpha_g/self.beta_g, self.n_cells, axis = 0)
+            self.mu_s_1cg = tt.extra_ops.repeat(self.alpha_g/self.gamma_g, self.n_cells, axis = 0)
             
             # 2: Repression:
-            self.tau_2 = pm.Deterministic('tau_2', self.t_c - self.t0)
-            self.mu_u_2g = self.mu_u_1g*tt.exp(-self.beta_g*self.tau_2)
-            self.mu_s_2g = self.mu_s_1g*tt.exp(-self.gamma_g*self.tau_2) - self.beta_g*self.mu_u_1g/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma_g*self.tau_2) - tt.exp(-self.beta_g*self.tau_2))   
+            self.mu_u_2cg = self.mu_u_1cg*tt.exp(-self.beta_g*self.tau_2)
+            self.mu_s_2cg = self.mu_s_1cg*tt.exp(-self.gamma_g*self.tau_2) - self.beta_g*self.mu_u_1cg/(self.gamma_g - self.beta_g) * (tt.exp(-self.gamma_g*self.tau_2) - tt.exp(-self.beta_g*self.tau_2))   
                                                                                                   
             # 3: Repression steady state:                                                                                 
-            self.mu_u_3g = 0
-            self.mu_s_3g = 0                        
-
+#             self.mu_u_3cg = tt.zeros((self.n_cells, self.n_genes))
+#             self.mu_s_3cg = tt.zeros((self.n_cells, self.n_genes))
+            
+            # Put all states into one tensor:
+            self.mu_u_cgk = tt.stack([self.mu_u_0cg,  self.mu_u_2cg], axis = 2)
+            self.mu_s_cgk = tt.stack([self.mu_s_0cg,  self.mu_s_2cg], axis = 2)
+            
             # And then integrate over outcomes of transcriptional states:                                            
-            self.mu_u_g = self.PK_gk[:,0] * self.mu_u_0g + self.PK_gk[:,1] * self.mu_u_1g + self.PK_gk[:,2] * self.mu_u_2g + self.PK_gk[:,3] * self.mu_u_3g
-            self.mu_s_g = self.PK_gk[:,0] * self.mu_s_0g + self.PK_gk[:,1] * self.mu_s_1g + self.PK_gk[:,2] * self.mu_s_2g + self.PK_gk[:,3] * self.mu_s_3g
+            self.mu_u_cg = tt.sum(self.PK_cgk * self.mu_u_cgk, axis = 2)
+            self.mu_s_cg = tt.sum(self.PK_cgk * self.mu_s_cgk, axis = 2)
                                                                                                    
             # Alpha for NB distribution:
             self.phi_hyp_u_g = pm.Gamma('phi_hyp_u_g', mu=3,
@@ -84,11 +90,11 @@ class DynamicModel_V1(Pymc3Model):
             self.phi_hyp_s_g = pm.Gamma('phi_hyp_s_g', mu=3,
                                     sigma=1, shape=(1, 1))
             self.gene_E_s_g = pm.Exponential('gene_E_s_g', self.phi_hyp_s_g, shape=(self.n_genes, 1))
-            self.alpha_s_g = 1 / (self.gene_E_s_g.T * self.gene_E_s_g.T)                                                                        
+            self.alpha_s_g = 1 / (self.gene_E_s_g.T * self.gene_E_s_g.T)   
             
             # Concatenate mean and alpha for Negative Binomial Distribution:
-            self.mu = tt.concatenate([self.mu_u_g, self.mu_s_g], axis = 1)
-            self.alpha = tt.concatenate([self.alpha_u_g, self.alpha_s_g], axis = 1)
+            self.mu = tt.concatenate([self.mu_u_cg, self.mu_s_cg], axis = 1)
+            self.alpha = tt.concatenate([self.alpha_u_g, self.alpha_s_g], axis = 1) 
             
             # Calculate NB log probability density:
             self.data_target = pm.NegativeBinomial('data_target', mu= self.mu,
@@ -98,14 +104,14 @@ class DynamicModel_V1(Pymc3Model):
     def add_mus_to_adata(self, adata):
         """Add expected values for relevant model parameters to adata"""
     
-        adata.var['fit_alpha'] = self.samples['post_sample_means']['alpha_g']                                    
-        adata.var['fit_beta'] = self.samples['post_sample_means']['beta_g']                                                             
-        adata.var['fit_gamma'] = self.samples['post_sample_means']['gamma_g']     
-        adata.var['fit_t_'] = self.samples['post_sample_means']['t0']
-        adata.var['fit_u0'] = 
-        adata.var['fit_s0'] = 
+        adata.var['fit_alpha'] = self.samples['post_sample_means']['alpha_g'].flatten()                                   
+        adata.var['fit_beta'] = self.samples['post_sample_means']['beta_g'].flatten()
+        adata.var['fit_gamma'] = self.samples['post_sample_means']['gamma_g'].flatten()     
+        adata.var['fit_t_'] = 0 #self.samples['post_sample_means']['t0'].flatten()
+        adata.var['fit_u0'] = (self.samples['post_sample_means']['alpha_g']/self.samples['post_sample_means']['beta_g']).flatten()
+        adata.var['fit_s0'] = (self.samples['post_sample_means']['alpha_g']/self.samples['post_sample_means']['gamma_g']).flatten()
         
-        adata.layers['fit_t'] = self.samples['post_sample_means']['t_c']
+        adata.layers['fit_t'] = self.samples['post_sample_means']['tau_0']
         adata.layers['fit_tau'] = self.samples['post_sample_means']['tau_0']
         adata.layers['fit_tau_'] = self.samples['post_sample_means']['tau_2']
                                                                                                                                     
@@ -113,9 +119,9 @@ class DynamicModel_V1(Pymc3Model):
 
 
 def recover_dynamics_pymc3(adata,
-                     total_iterations = 20000,
+                     total_iterations = 1000,
                      learning_rate = 0.01,
-                     posterior_samples = 100,
+                     posterior_samples = 10,
                      verbose = True):
         r"""Wrapper function to fit pymc3 dynamic model. Makes it fit in with scvelo API"""
                                                                                                                                                                                 
@@ -143,7 +149,7 @@ def recover_dynamics_pymc3(adata,
 
             print('Sampling from posterior distribution...')
 
-        model.sample_posterior(node='all', n_samples=posterior_samples, save_samples=False);
+        model.sample_posterior(node='all', n_samples=posterior_samples, save_samples=True);
 
         model.add_mus_to_adata(adata)
 #         model.add_sds_to_adata(adata)
@@ -152,6 +158,14 @@ def recover_dynamics_pymc3(adata,
         adata.var['fit_scaling'] = 1
         adata.var['fit_std_u'], adata.var['fit_std_s'] = np.std(adata.layers['spliced'].toarray()), np.std(adata.layers['unspliced'].toarray())
         
+        # We use correlation here instead of likelihood to find genes that fit well to the model:
+        data_sample = model.mean_field['init_1'].sample_node(model.data_target, size=1).eval()
+        data_sample = data_sample.squeeze()
+        adata.var['fit_likelihood'] = [(np.corrcoef(data_sample[:,:int(np.shape(data_sample)[1]/2)][:,i], adata.layers['unspliced'].toarray()[:,i])[0,1] +
+ np.corrcoef(data_sample[:,int(np.shape(data_sample)[1]/2):][:,i], adata.layers['spliced'].toarray()[:,i])[0,1])/2
+ for i in range(int(np.shape(data_sample)[1]/2))]
+        
         if verbose:
 
             print('Done.')
+        return model
