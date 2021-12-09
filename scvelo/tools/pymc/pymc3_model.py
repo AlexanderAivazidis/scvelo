@@ -9,7 +9,7 @@ import theano
 from pymc3.variational.callbacks import CheckParametersConvergence
 from tqdm.auto import tqdm
 
-from scvelo.tools.base_model import BaseModel
+from scvelo.tools.pymc.base_model import BaseModel
 
 # base model class - defining shared methods but not the model itself
 class Pymc3Model(BaseModel):

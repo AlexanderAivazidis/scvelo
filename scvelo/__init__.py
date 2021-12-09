@@ -29,3 +29,4 @@ from . import utils
 from . import datasets
 from . import logging
 from . import settings
+from . import pymc

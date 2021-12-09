@@ -1,3 +1,4 @@
+# from .velocity_pymc3 import velocity_pymc3
 from .velocity import velocity, velocity_genes
 from .velocity_graph import velocity_graph
 from .transition_matrix import transition_matrix
@@ -12,4 +13,4 @@ from .dynamical_model import differential_kinetic_test, rank_dynamical_genes
 from scanpy.tools import tsne, umap, diffmap, dpt, louvain
 from .score_genes_cell_cycle import score_genes_cell_cycle
 from .paga import paga
-from .dynamical_model_pymc3 import DynamicModel_V1, recover_dynamics_pymc3
+from .pymc import recover_dynamics_pymc3
